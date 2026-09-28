@@ -13,6 +13,10 @@ import {
   openThread as harnessOpenThread,
   scanThreads,
 } from './scan.mjs'
+import {
+  getOverview as googleTasksOverview,
+  saveConfig as saveGoogleTasksConfig,
+} from './harnesses/google-tasks.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = process.env.BOT_CROSSING_DATA || path.join(here, '..', 'data')
@@ -455,6 +459,16 @@ export async function apiMiddleware(req, res, next) {
       const harness = body.harness || (await defaultHarness())
       const shown = await present(await harnessNewSession(harness, dir), viaOf(body))
       return send(res, shown.ok ? 200 : 400, shown)
+    }
+
+    if (url.pathname === '/api/google-tasks/overview' && req.method === 'GET') {
+      return send(res, 200, await googleTasksOverview())
+    }
+
+    if (url.pathname === '/api/google-tasks/config' && req.method === 'POST') {
+      const body = await readJsonBody(req)
+      const saved = await saveGoogleTasksConfig(body)
+      return send(res, 200, { ok: true, config: saved })
     }
 
     return send(res, 404, { error: 'Unknown endpoint' })

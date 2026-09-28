@@ -88,6 +88,8 @@ const actions = {
     rig.resetView()
   },
 
+  poll: () => poll(),
+
   screenshot: () => {
     // Render one more frame, then read the buffer before the compositor clears it — the
     // alternative is preserveDrawingBuffer, which costs a copy on every single frame.

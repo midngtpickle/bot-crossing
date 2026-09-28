@@ -8,15 +8,34 @@
  * Read-only, no subprocess, and no modifications to harness files.
  */
 import fsp from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { exists, jsonLines, listDirs, readHead, readTail, findExecutable } from '../lib/fsutil.mjs'
 
 const HOME = os.homedir()
+
+function getCandidateBrainDirs() {
+  const homes = []
+  if (process.env.BOT_CROSSING_ANTIGRAVITY_HOME) homes.push(process.env.BOT_CROSSING_ANTIGRAVITY_HOME)
+  if (process.env.ANTIGRAVITY_HOME) homes.push(process.env.ANTIGRAVITY_HOME)
+  homes.push(path.join(HOME, '.gemini', 'antigravity'))
+  homes.push(path.join(HOME, '.gemini', 'antigravity-cli'))
+
+  const brainDirs = []
+  for (const h of homes) {
+    const b = path.join(h, 'brain')
+    if (!brainDirs.includes(b)) brainDirs.push(b)
+  }
+  return brainDirs
+}
+
 const ANTIGRAVITY_HOME =
   process.env.BOT_CROSSING_ANTIGRAVITY_HOME ||
   process.env.ANTIGRAVITY_HOME ||
-  path.join(HOME, '.gemini', 'antigravity-cli')
+  (existsSync(path.join(HOME, '.gemini', 'antigravity', 'brain'))
+    ? path.join(HOME, '.gemini', 'antigravity')
+    : path.join(HOME, '.gemini', 'antigravity-cli'))
 const BRAIN_DIR = path.join(ANTIGRAVITY_HOME, 'brain')
 
 const HEAD_BYTES = 96 * 1024
@@ -50,9 +69,21 @@ function userText(record) {
 
 /** Try to extract workspace/cwd from prompt user_information tags if present. */
 function extractCwd(text) {
-  const m = /active workspaces, each defined by a URI[\s\S]*?\[(.*?)\]\s*->/i.exec(text)
+  const m = /\[([a-zA-Z]:[\\/][^\]]+|\/[^\]]+)\]\s*->/i.exec(text)
   if (m && path.isAbsolute(m[1])) return m[1]
+  const m2 = /active workspaces, each defined by a URI[\s\S]*?\[(.*?)\]\s*->/i.exec(text)
+  if (m2 && path.isAbsolute(m2[1])) return m2[1]
   return ''
+}
+
+function extractToolCwd(tc) {
+  if (!tc?.args) return ''
+  const cand = tc.args.Cwd || tc.args.cwd || tc.args.TargetFile || tc.args.AbsolutePath || ''
+  if (typeof cand !== 'string') return ''
+  const cleanPath = cand.replace(/^["'\s]+|["'\s]+$/g, '')
+  if (!cleanPath) return ''
+  const p = (tc.args.TargetFile || tc.args.AbsolutePath) ? path.dirname(cleanPath) : cleanPath
+  return path.isAbsolute(p) ? p : ''
 }
 
 async function findTranscriptFile(sessionDir) {
@@ -68,24 +99,29 @@ async function findTranscriptFile(sessionDir) {
 
 async function scanTranscripts() {
   const out = []
-  for (const sessionDir of await listDirs(BRAIN_DIR)) {
-    const id = path.basename(sessionDir)
-    if (!UUID.test(id)) continue
-    const file = await findTranscriptFile(sessionDir)
-    if (!file) continue
-    try {
-      const st = await fsp.stat(file)
-      if (!st.size) continue
-      out.push({
-        id,
-        file,
-        sessionDir,
-        size: st.size,
-        mtime: st.mtimeMs,
-        born: st.birthtimeMs,
-      })
-    } catch {
-      /* vanished */
+  const seenIds = new Set()
+  for (const brainDir of getCandidateBrainDirs()) {
+    if (!(await exists(brainDir))) continue
+    for (const sessionDir of await listDirs(brainDir)) {
+      const id = path.basename(sessionDir)
+      if (!UUID.test(id) || seenIds.has(id)) continue
+      const file = await findTranscriptFile(sessionDir)
+      if (!file) continue
+      try {
+        const st = await fsp.stat(file)
+        if (!st.size) continue
+        seenIds.add(id)
+        out.push({
+          id,
+          file,
+          sessionDir,
+          size: st.size,
+          mtime: st.mtimeMs,
+          born: st.birthtimeMs,
+        })
+      } catch {
+        /* vanished */
+      }
     }
   }
   return out
@@ -108,8 +144,17 @@ async function facts(entry) {
           const t = Date.parse(r.created_at)
           if (!Number.isNaN(t)) value.startedAt = t
         }
-        if (value.prompt && value.cwd && value.startedAt) break
       }
+      if (!value.cwd && r?.tool_calls) {
+        for (const tc of r.tool_calls) {
+          const found = extractToolCwd(tc)
+          if (found) {
+            value.cwd = found
+            break
+          }
+        }
+      }
+      if (value.prompt && value.cwd && value.startedAt) break
     }
 
     const tail = jsonLines(await readTail(entry.file, TAIL_BYTES))
@@ -184,8 +229,10 @@ async function openThread(ref) {
 }
 
 async function newSession(dir) {
-  const abs = String(dir || '').replace(/\\/g, '/')
-  if (!abs.startsWith('/')) return { ok: false, error: 'That folder is not somewhere Antigravity can open' }
+  if (typeof dir !== 'string' || !path.isAbsolute(dir)) {
+    return { ok: false, error: 'That folder is not somewhere Antigravity can open' }
+  }
+  const abs = dir.replace(/\\/g, '/')
   const bin = (await findExecutable('antigravity')) || (await findExecutable('antigravity-cli'))
   const url = `antigravity://new?${new URLSearchParams({ path: abs })}`
   let command
@@ -195,7 +242,12 @@ async function newSession(dir) {
   return { ok: true, url, command }
 }
 
-const detect = () => exists(BRAIN_DIR)
+const detect = async () => {
+  for (const b of getCandidateBrainDirs()) {
+    if (await exists(b)) return true
+  }
+  return false
+}
 
 export default {
   id: 'antigravity',

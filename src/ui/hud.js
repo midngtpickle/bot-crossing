@@ -4,6 +4,7 @@ import { TIMES, systemTimeOfDay } from '../world/sky.js'
 import { STATUS_LABEL } from '../game/colony.js'
 import { FACE, FRAME_COLS, FRAME_ROWS } from '../agents/faces.js'
 import { PLOT_PALETTE, hashString } from '../world/plots.js'
+import { fetchGoogleTasksOverview, saveGoogleTasksConfig } from '../game/api.js'
 
 /**
  * The whole HUD, in plain DOM.
@@ -321,6 +322,23 @@ export class Hud {
       this._slider('Effects', 'effectsVolume', 0, 1, 0.05, (v) => `${Math.round(v * 100)}%`, 'Hammering, drones, splashes, the chime when somebody needs you.')
     )
     body.appendChild(sound)
+
+    // Google Tasks.
+    const gtasks = group('Google Tasks')
+    const gtasksHint = document.createElement('div')
+    gtasksHint.className = 'hint'
+    gtasksHint.style.cssText = 'margin-bottom: 10px; font-size: 12px; line-height: 1.4;'
+    gtasksHint.textContent = 'Match task lists to project folders, or hide lists you do not want in the colony.'
+    gtasks.appendChild(gtasksHint)
+
+    const gtasksListWrap = document.createElement('div')
+    gtasksListWrap.className = 'gt-lists-wrap'
+    gtasksListWrap.innerHTML = '<div class="hint" style="padding: 6px 0;">Open settings to load task lists...</div>'
+    gtasks.appendChild(gtasksListWrap)
+    body.appendChild(gtasks)
+
+    this._gtasksListWrap = gtasksListWrap
+    this._gtasksLoaded = false
   }
 
   _row(label, hint) {
@@ -918,8 +936,183 @@ export class Hud {
     side.classList.toggle('covered', open)
     side.inert = open
     panel.inert = !open
-    if (open) this.$('#btn-close-settings').focus({ preventScroll: true })
-    else if (panel.contains(document.activeElement)) this.$('#btn-settings').focus({ preventScroll: true })
+    if (open) {
+      this.$('#btn-close-settings').focus({ preventScroll: true })
+      this._refreshGoogleTasksSettings()
+    } else if (panel.contains(document.activeElement)) {
+      this.$('#btn-settings').focus({ preventScroll: true })
+    }
+  }
+
+  async _refreshGoogleTasksSettings() {
+    if (!this._gtasksListWrap) return
+    this._gtasksListWrap.innerHTML = '<div class="hint" style="padding: 6px 0;">Loading task lists...</div>'
+    try {
+      const data = await fetchGoogleTasksOverview()
+      if (!data || !data.detected) {
+        this._gtasksListWrap.innerHTML =
+          '<div class="hint" style="padding: 6px 0; color: #ff9882;">Google Tasks MCP is not detected or authenticated.</div>'
+        return
+      }
+
+      if (!data.lists || data.lists.length === 0) {
+        this._gtasksListWrap.innerHTML =
+          '<div class="hint" style="padding: 6px 0;">No task lists found on your Google Tasks account.</div>'
+        return
+      }
+
+      this._renderGoogleTasksListItems(data)
+    } catch (err) {
+      this._gtasksListWrap.innerHTML = `<div class="hint" style="color: #ff9882;">Could not load Google Tasks: ${escapeHtml(err.message || String(err))}</div>`
+    }
+  }
+
+  _renderGoogleTasksListItems(data) {
+    const wrap = this._gtasksListWrap
+    wrap.innerHTML = ''
+
+    const config = data.config || { hiddenLists: [], folderMappings: {} }
+    const hiddenSet = new Set(config.hiddenLists || [])
+    const folderMappings = { ...(config.folderMappings || {}) }
+
+    const saveChanges = async () => {
+      try {
+        const next = {
+          hiddenLists: [...hiddenSet],
+          folderMappings,
+        }
+        await saveGoogleTasksConfig(next)
+        this.actions.poll?.()
+      } catch {
+        this.toast('Failed to save Google Tasks settings', 'err')
+      }
+    }
+
+    for (const list of data.lists) {
+      const card = document.createElement('div')
+      const isHidden = hiddenSet.has(list.id) || hiddenSet.has(list.title)
+      card.className = `gt-list-card ${isHidden ? 'hidden-list' : ''}`
+
+      // Header row with title and Hide/Show toggle
+      const header = document.createElement('div')
+      header.className = 'gt-list-header'
+
+      const title = document.createElement('span')
+      title.className = 'gt-list-title'
+      title.textContent = list.title
+      title.title = list.title
+
+      const hideBtn = document.createElement('button')
+      hideBtn.type = 'button'
+      hideBtn.className = `btn btn-sm ${isHidden ? '' : 'ghost'}`
+      hideBtn.style.cssText = 'height: 24px; padding: 0 8px; font-size: 11px;'
+      hideBtn.textContent = isHidden ? 'Show' : 'Hide'
+      hideBtn.title = isHidden ? 'Show this list as a bot in the colony' : 'Hide this list from the colony'
+
+      hideBtn.addEventListener('click', () => {
+        const nowHidden = !hiddenSet.has(list.id) && !hiddenSet.has(list.title)
+        if (nowHidden) {
+          hiddenSet.add(list.id)
+          card.classList.add('hidden-list')
+          hideBtn.textContent = 'Show'
+          hideBtn.classList.remove('ghost')
+        } else {
+          hiddenSet.delete(list.id)
+          hiddenSet.delete(list.title)
+          card.classList.remove('hidden-list')
+          hideBtn.textContent = 'Hide'
+          hideBtn.classList.add('ghost')
+        }
+        saveChanges()
+      })
+
+      header.append(title, hideBtn)
+      card.appendChild(header)
+
+      // Folder mapping controls
+      const folderDiv = document.createElement('div')
+      folderDiv.className = 'gt-list-folder'
+
+      const sel = document.createElement('select')
+      sel.className = 'select'
+
+      // Option 1: Auto (default)
+      const optAuto = document.createElement('option')
+      optAuto.value = ''
+      optAuto.textContent = list.autoFolder
+        ? `Auto: ${shortPath(list.autoFolder)}`
+        : 'Auto: None (not matched)'
+      sel.appendChild(optAuto)
+
+      // Candidate folders
+      const candidates = data.candidateFolders || []
+      for (const f of candidates) {
+        const opt = document.createElement('option')
+        opt.value = f
+        opt.textContent = `Folder: ${shortPath(f)}`
+        sel.appendChild(opt)
+      }
+
+      // Custom option
+      const optCustom = document.createElement('option')
+      optCustom.value = '__custom__'
+      optCustom.textContent = 'Custom path...'
+      sel.appendChild(optCustom)
+
+      const customInput = document.createElement('input')
+      customInput.type = 'text'
+      customInput.className = 'gt-custom-input'
+      customInput.placeholder = 'Paste project folder path...'
+      customInput.value = list.manualFolder || ''
+
+      const isCandidate = candidates.includes(list.manualFolder)
+      if (list.manualFolder && isCandidate) {
+        sel.value = list.manualFolder
+        customInput.style.display = 'none'
+      } else if (list.manualFolder && !isCandidate) {
+        sel.value = '__custom__'
+        customInput.style.display = 'block'
+      } else {
+        sel.value = ''
+        customInput.style.display = 'none'
+      }
+
+      sel.addEventListener('change', () => {
+        if (sel.value === '__custom__') {
+          customInput.style.display = 'block'
+          customInput.focus()
+          if (customInput.value) {
+            folderMappings[list.id] = customInput.value.trim()
+            saveChanges()
+          }
+        } else if (sel.value === '') {
+          customInput.style.display = 'none'
+          delete folderMappings[list.id]
+          delete folderMappings[list.title]
+          saveChanges()
+        } else {
+          customInput.style.display = 'none'
+          folderMappings[list.id] = sel.value
+          saveChanges()
+        }
+      })
+
+      customInput.addEventListener('change', () => {
+        const val = customInput.value.trim()
+        if (val) {
+          folderMappings[list.id] = val
+        } else {
+          delete folderMappings[list.id]
+          delete folderMappings[list.title]
+          sel.value = ''
+        }
+        saveChanges()
+      })
+
+      folderDiv.append(sel, customInput)
+      card.appendChild(folderDiv)
+      wrap.appendChild(card)
+    }
   }
 
   toggleHelp(force) {

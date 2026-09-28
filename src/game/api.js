@@ -111,3 +111,7 @@ export const openThread = (thread, via) => post('/api/open', { harness: thread.h
 export const newSession = (folder, harness, via) => post('/api/new-session', { folder, harness, via })
 
 export const revealFolder = (folder) => post('/api/reveal', { folder })
+
+export const fetchGoogleTasksOverview = () => req('/api/google-tasks/overview')
+
+export const saveGoogleTasksConfig = (config) => post('/api/google-tasks/config', config)
