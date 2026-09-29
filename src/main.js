@@ -22,6 +22,7 @@ import {
   openThread,
   newSession,
   revealFolder,
+  fetchHarnesses,
 } from './game/api.js'
 import { hideProject, hiddenCatalog, unhideProject } from './game/hidden-projects.js'
 import { withErrands } from './game/errands.js'
@@ -61,7 +62,7 @@ engine.setPlanetGrade(PLANETS[settings.get('planet')]?.grade)
 const rig = new CameraRig(engine.camera, engine.canvas, settings)
 const colony = new Colony(engine.scene, settings, engine.camera, engine.renderer)
 
-let state = { archived: [], archivedAt: {}, opened: [], plots: {}, seen: {}, hiddenProjects: [], viewedAt: {} }
+let state = { archived: [], archivedAt: {}, opened: [], plots: {}, seen: {}, hiddenProjects: [], hiddenHarnesses: [], viewedAt: {} }
 let threads = []
 /** Last legend built for the bottom bar, kept so the open zone's chip can light up between polls. */
 let legendProjects = []
@@ -231,6 +232,32 @@ const actions = {
     state.hiddenProjects = unhideProject(state.hiddenProjects || [], name)
     queueSave()
     applyThreads(threads)
+    hud.toast(`Showing ${name} again`)
+  },
+
+  hideHarness: (harnessId) => {
+    state.hiddenHarnesses = [...new Set([...(state.hiddenHarnesses || []), harnessId])]
+    queueSave()
+    if (selectedId) {
+      const thread = threads.find((t) => t.id === selectedId)
+      if (thread?.harness === harnessId) select(null, {})
+    }
+    applyThreads(threads)
+    hud.setHarnesses(getHarnessCatalog())
+    const catalog = getHarnessCatalog()
+    const item = catalog.find((h) => h.id === harnessId)
+    const name = item?.name || harnessId
+    hud.toast(`Hidden ${name} — threads and bots removed from colony`)
+  },
+
+  unhideHarness: (harnessId) => {
+    state.hiddenHarnesses = (state.hiddenHarnesses || []).filter((h) => h !== harnessId)
+    queueSave()
+    applyThreads(threads)
+    hud.setHarnesses(getHarnessCatalog())
+    const catalog = getHarnessCatalog()
+    const item = catalog.find((h) => h.id === harnessId)
+    const name = item?.name || harnessId
     hud.toast(`Showing ${name} again`)
   },
 
@@ -409,10 +436,11 @@ function pathForProject(name) {
 
 /** Push the open zone's current contents at the sidebar. Closes it if the zone is gone. */
 function syncProject() {
-  const hidden = hiddenCatalog(state.hiddenProjects || [], threads)
+  const hiddenH = new Set(state.hiddenHarnesses || [])
+  const hidden = hiddenCatalog(state.hiddenProjects || [], threads, hiddenH)
   // Folded-away repos are listed alongside the ones you hid by hand. Same principle: nothing
   // leaves the map without somewhere on screen saying where it went.
-  const folded = hiddenCatalog([...(colony.dormantProjects || [])], threads)
+  const folded = hiddenCatalog([...(colony.dormantProjects || [])], threads, hiddenH)
   const plot = selectedProject ? colony.plots.get(selectedProject) : null
   if (!plot) {
     selectedProject = null
@@ -902,6 +930,80 @@ window.addEventListener('keydown', (e) => {
 
 // ── data ──────────────────────────────────────────────────────────────────────────────
 
+let detectedHarnessList = []
+let detectedHarnessSet = new Set()
+
+async function refreshHarnessStatus() {
+  try {
+    const res = await fetchHarnesses()
+    if (res?.harnesses) {
+      detectedHarnessList = res.harnesses.filter((h) => h.detected)
+      detectedHarnessSet = new Set(detectedHarnessList.map((h) => h.id))
+      hud.setHarnesses(getHarnessCatalog())
+    }
+  } catch {}
+}
+
+const HARNESS_DISPLAY_NAMES = {
+  'antigravity': 'Antigravity',
+  'claude-code': 'Claude Code',
+  'opencode': 'OpenCode',
+  'cursor': 'Cursor',
+  'codex': 'Codex',
+  'google-tasks': 'Google Tasks',
+  'kilocode': 'Kilo Code',
+  'hermes': 'Hermes',
+}
+
+function getHarnessCatalog() {
+  const hiddenH = new Set(state.hiddenHarnesses || [])
+  const counts = new Map()
+  const names = new Map()
+  const archivedSet = new Set(state.archived || [])
+
+  // Count active/unarchived threads per harness from threads
+  for (const t of threads) {
+    if (t.archived || archivedSet.has(t.id)) continue
+    const hid = t.harness || 'unknown'
+    counts.set(hid, (counts.get(hid) || 0) + 1)
+    if (t.harnessName && !names.has(hid)) {
+      names.set(hid, t.harnessName)
+    }
+  }
+
+  // Also include any detected harnesses
+  for (const h of detectedHarnessList) {
+    if (!counts.has(h.id)) {
+      counts.set(h.id, 0)
+    }
+    if (!names.has(h.id) && h.name) {
+      names.set(h.id, h.name)
+    }
+  }
+
+  const catalog = []
+  for (const [id, count] of counts) {
+    const isDetected = detectedHarnessSet.has(id)
+    if (count === 0 && !isDetected) continue
+
+    const name = names.get(id) || HARNESS_DISPLAY_NAMES[id] || id
+    catalog.push({
+      id,
+      name,
+      count,
+      hidden: hiddenH.has(id),
+    })
+  }
+
+  // Sort: harnesses with threads first (descending count), then alphabetically
+  catalog.sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count
+    return a.name.localeCompare(b.name)
+  })
+
+  return catalog
+}
+
 function applyThreads(list) {
   // Parked while a plot is in hand. `allocateCells` would leave the carried zone's cells
   // alone, but a sibling that grew a thread still rebuilds — and any rebuild pass disposes
@@ -923,6 +1025,7 @@ function applyThreads(list) {
   list = threads
   const archivedSet = new Set(state.archived)
   const hiddenSet = new Set(state.hiddenProjects || [])
+  const hiddenHarnessesSet = new Set(state.hiddenHarnesses || [])
 
   // Which threads the colony has met before. Walking out of the ship is meant to *mean*
   // something — a thread that just appeared — and without this every reload staged a
@@ -937,27 +1040,34 @@ function applyThreads(list) {
   }
   if (firstSeen) queueSave()
 
-  const stats = colony.setThreads(list, archivedSet, hiddenSet, known)
+  const stats = colony.setThreads(list, archivedSet, hiddenSet, known, hiddenHarnessesSet)
   hud.setStats(stats)
-  chimeForNewWaiting(list, archivedSet, hiddenSet)
+  chimeForNewWaiting(list, archivedSet, hiddenSet, hiddenHarnessesSet)
 
   legendProjects = colony.plotOrder
     .map((plot) => ({
       name: plot.name,
       accent: plot.accent,
-      count: list.filter((t) => !t.archived && !archivedSet.has(t.id) && t.project === plot.name).length,
+      count: list.filter((t) => !t.archived && !archivedSet.has(t.id) && !hiddenHarnessesSet.has(t.harness) && t.project === plot.name).length,
       urgent: colony.urgentPlots?.has(plot.id) ?? false,
     }))
+    .filter((p) => p.count > 0)
     .sort((a, b) => b.count - a.count)
 
   // Keep the card honest if the thread it is showing changed underneath it.
   if (selectedId) {
-    const still = colony.agentFor(selectedId)
-    if (still) hud.setSelection(still, list.find((t) => t.id === selectedId) || still.thread)
-    else select(null, {})
+    const thread = list.find((t) => t.id === selectedId)
+    if (thread && hiddenHarnessesSet.has(thread.harness)) {
+      select(null, {})
+    } else {
+      const still = colony.agentFor(selectedId)
+      if (still) hud.setSelection(still, thread || still.thread)
+      else select(null, {})
+    }
   }
   // Which also repaints the legend, so the open zone's chip is lit by the same pass.
   syncProject()
+  hud.setHarnesses(getHarnessCatalog())
 
   // Zones only move when their own footprint changes, and when one does the colony file
   // learns about it — so the map you built up a memory of survives a reload.
@@ -978,11 +1088,11 @@ function applyThreads(list) {
 const waitingBefore = new Set()
 let seenFirstRoster = false
 let lastChime = 0
-function chimeForNewWaiting(list, archivedSet, hiddenSet) {
+function chimeForNewWaiting(list, archivedSet, hiddenSet, hiddenHarnessesSet) {
   const now = Date.now()
   const waiting = new Set()
   for (const t of list) {
-    if (archivedSet.has(t.id) || hiddenSet.has(t.project)) continue
+    if (archivedSet.has(t.id) || hiddenSet.has(t.project) || hiddenHarnessesSet?.has(t.harness)) continue
     if (statusFor(t, now) === 'waiting') waiting.add(t.id)
   }
   if (seenFirstRoster) {
@@ -1061,6 +1171,7 @@ async function boot() {
   colony.astronauts.setRig(crewRig())
   if (!kitError) colony.onAssetsReady()
 
+  await refreshHarnessStatus()
   await poll()
   setInterval(poll, POLL_MS)
   window.addEventListener('focus', poll)

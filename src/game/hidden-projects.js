@@ -25,20 +25,28 @@ export function unhideProject(hidden, name) {
 }
 
 /** The threads the colony should actually draw. */
-export function liveThreadsForColony(threads, archivedIds, hiddenProjects) {
+export function liveThreadsForColony(threads, archivedIds, hiddenProjects, hiddenHarnesses = []) {
   const archived = archivedIds instanceof Set ? archivedIds : new Set(archivedIds)
   const hidden = hiddenProjects instanceof Set ? hiddenProjects : new Set(hiddenProjects)
-  return threads.filter((t) => !t.archived && !archived.has(t.id) && !hidden.has(t.project || 'unknown'))
+  const hiddenH = hiddenHarnesses instanceof Set ? hiddenHarnesses : new Set(hiddenHarnesses)
+  return threads.filter(
+    (t) =>
+      !t.archived &&
+      !archived.has(t.id) &&
+      !hidden.has(t.project || 'unknown') &&
+      !hiddenH.has(t.harness)
+  )
 }
 
 /**
  * What the sidebar lists, with a live count each — so a hidden repo that has since gone quiet
  * reads as `0` and you can tell it is safe to forget rather than having to show it to find out.
  */
-export function hiddenCatalog(hidden, threads) {
+export function hiddenCatalog(hidden, threads, hiddenHarnesses = []) {
+  const hiddenH = hiddenHarnesses instanceof Set ? hiddenHarnesses : new Set(hiddenHarnesses)
   const names = [...new Set(hidden.map(String).filter(Boolean))].sort((a, b) => a.localeCompare(b))
   return names.map((name) => ({
     name,
-    count: threads.filter((t) => !t.archived && (t.project || 'unknown') === name).length,
+    count: threads.filter((t) => !t.archived && !hiddenH.has(t.harness) && (t.project || 'unknown') === name).length,
   }))
 }

@@ -1570,6 +1570,56 @@ kbd {
 }
 .bot-crossing-canvas { cursor: grab; }
 
+/* ── Harnesses settings ─────────────────────────────────────────────────────────── */
+
+.harness-lists-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.harness-list-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  gap: 10px;
+  transition: opacity 200ms ease, background 200ms ease;
+}
+
+.harness-list-card.hidden-harness {
+  opacity: 0.55;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.harness-info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.harness-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.harness-count {
+  font-size: 11.5px;
+  color: var(--dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Google Tasks settings ──────────────────────────────────────────────────────── */
 
 .gt-group-header {

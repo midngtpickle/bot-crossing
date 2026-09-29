@@ -10,6 +10,7 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { mergeState } from '../src/game/merge-state.js'
+import { liveThreadsForColony } from '../src/game/hidden-projects.js'
 import { withServer } from './support/with-server.mjs'
 
 // ── the three-way merge ───────────────────────────────────────────────────────
@@ -43,6 +44,21 @@ test('a zone this tab never touched is left exactly as the other tab left it', (
 test('hiding a repo survives a conflicting save', () => {
   assert.deepEqual(mergeState({ hiddenProjects: [] }, { hiddenProjects: ['x'] }, { hiddenProjects: [] }).hiddenProjects, ['x'])
   assert.deepEqual(mergeState({ hiddenProjects: [] }, { hiddenProjects: [] }, { hiddenProjects: ['y'] }).hiddenProjects, ['y'])
+})
+
+test('hiding a harness survives a conflicting save', () => {
+  assert.deepEqual(mergeState({ hiddenHarnesses: [] }, { hiddenHarnesses: ['antigravity'] }, { hiddenHarnesses: [] }).hiddenHarnesses, ['antigravity'])
+  assert.deepEqual(mergeState({ hiddenHarnesses: [] }, { hiddenHarnesses: [] }, { hiddenHarnesses: ['claude-code'] }).hiddenHarnesses, ['claude-code'])
+})
+
+test('liveThreadsForColony filters out threads from hidden harnesses', () => {
+  const threads = [
+    { id: '1', project: 'bot-crossing', harness: 'antigravity', archived: false },
+    { id: '2', project: 'bot-crossing', harness: 'claude-code', archived: false },
+    { id: '3', project: 'bot-crossing', harness: 'opencode', archived: false },
+  ]
+  const live = liveThreadsForColony(threads, [], [], ['antigravity'])
+  assert.deepEqual(live.map((t) => t.id), ['2', '3'])
 })
 
 test('settings are not merged field-wise — the last tab to touch a slider wins whole', () => {

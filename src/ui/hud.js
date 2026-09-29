@@ -325,6 +325,52 @@ export class Hud {
     )
     body.appendChild(sound)
 
+    // Harnesses (collapsible accordion).
+    const harnessesGroup = document.createElement('div')
+    harnessesGroup.className = 'group gt-group'
+
+    const harnessesHeader = document.createElement('h3')
+    harnessesHeader.className = 'gt-group-header'
+
+    const hToggleBtn = document.createElement('button')
+    hToggleBtn.type = 'button'
+    hToggleBtn.id = 'btn-harnesses-toggle'
+    hToggleBtn.className = 'gt-toggle-btn'
+    hToggleBtn.setAttribute('aria-expanded', 'false')
+    hToggleBtn.setAttribute('aria-controls', 'harnesses-collapse-body')
+    hToggleBtn.title = 'Toggle Harnesses options'
+    hToggleBtn.innerHTML = `<span class="gt-chevron">${ICON.chevronRight}</span><span>Harnesses</span>`
+
+    harnessesHeader.appendChild(hToggleBtn)
+    harnessesHeader.addEventListener('click', (e) => {
+      if (e.target.closest('button') && e.target.closest('button') !== hToggleBtn) return
+      this.toggleHarnesses()
+    })
+    harnessesGroup.appendChild(harnessesHeader)
+
+    const harnessesContent = document.createElement('div')
+    harnessesContent.className = 'gt-collapse-body'
+    harnessesContent.id = 'harnesses-collapse-body'
+    harnessesContent.hidden = true
+
+    const harnessesHint = document.createElement('div')
+    harnessesHint.className = 'hint gt-hint'
+    harnessesHint.textContent = 'Quickly hide or show agent harnesses and all their threads across the colony.'
+    harnessesContent.appendChild(harnessesHint)
+
+    const harnessesListWrap = document.createElement('div')
+    harnessesListWrap.className = 'harness-lists-wrap'
+    harnessesListWrap.innerHTML = '<div class="hint" style="padding: 6px 0;">No active harnesses detected...</div>'
+    harnessesContent.appendChild(harnessesListWrap)
+
+    harnessesGroup.appendChild(harnessesContent)
+    body.appendChild(harnessesGroup)
+
+    this._harnessesListWrap = harnessesListWrap
+    this._harnessesContent = harnessesContent
+    this._harnessesToggleBtn = hToggleBtn
+    this._harnessesExpanded = false
+
     // Google Tasks (collapsible accordion).
     const gtasks = document.createElement('div')
     gtasks.className = 'group gt-group'
@@ -991,6 +1037,68 @@ export class Hud {
       }
     } else if (panel.contains(document.activeElement)) {
       this.$('#btn-settings').focus({ preventScroll: true })
+    }
+  }
+
+  toggleHarnesses(force) {
+    const next = force ?? !this._harnessesExpanded
+    this._harnessesExpanded = next
+    if (this._harnessesToggleBtn) {
+      this._harnessesToggleBtn.setAttribute('aria-expanded', String(next))
+    }
+    if (this._harnessesContent) {
+      this._harnessesContent.hidden = !next
+    }
+    return next
+  }
+
+  setHarnesses(catalog = []) {
+    if (!this._harnessesListWrap) return
+    this._harnessesCatalog = catalog
+
+    const wrap = this._harnessesListWrap
+    wrap.innerHTML = ''
+
+    if (!catalog || catalog.length === 0) {
+      wrap.innerHTML = '<div class="hint" style="padding: 6px 0;">No harnesses detected.</div>'
+      return
+    }
+
+    for (const h of catalog) {
+      const card = document.createElement('div')
+      card.className = `harness-list-card ${h.hidden ? 'hidden-harness' : ''}`
+
+      const info = document.createElement('div')
+      info.className = 'harness-info'
+
+      const name = document.createElement('span')
+      name.className = 'harness-title'
+      name.textContent = h.name
+
+      const count = document.createElement('span')
+      count.className = 'harness-count'
+      count.textContent = `${h.count} thread${h.count === 1 ? '' : 's'}`
+
+      info.append(name, count)
+
+      const toggleBtn = document.createElement('button')
+      toggleBtn.type = 'button'
+      toggleBtn.className = `btn btn-sm ${h.hidden ? '' : 'ghost'}`
+      toggleBtn.style.cssText = 'height: 24px; padding: 0 8px; font-size: 11px; flex: none;'
+      toggleBtn.textContent = h.hidden ? 'Show' : 'Hide'
+      toggleBtn.title = h.hidden ? `Show ${h.name} threads in the colony` : `Hide all ${h.name} threads from the colony`
+
+      toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        if (h.hidden) {
+          this.actions.unhideHarness?.(h.id)
+        } else {
+          this.actions.hideHarness?.(h.id)
+        }
+      })
+
+      card.append(info, toggleBtn)
+      wrap.appendChild(card)
     }
   }
 

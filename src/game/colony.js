@@ -474,9 +474,9 @@ export class Colony {
    * ids — repo name for plots, session id for buildings — so a poll that changes nothing
    * moves nothing on screen.
    */
-  setThreads(threads, archivedIds = new Set(), hiddenProjects = new Set(), knownIds = new Set()) {
+  setThreads(threads, archivedIds = new Set(), hiddenProjects = new Set(), knownIds = new Set(), hiddenHarnesses = new Set()) {
     const now = Date.now()
-    const live = liveThreadsForColony(threads, archivedIds, hiddenProjects)
+    const live = liveThreadsForColony(threads, archivedIds, hiddenProjects, hiddenHarnesses)
 
     // Group by repo, biggest project first so the busiest work lands nearest the middle.
     const byProject = new Map()

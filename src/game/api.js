@@ -115,3 +115,5 @@ export const revealFolder = (folder) => post('/api/reveal', { folder })
 export const fetchGoogleTasksOverview = () => req('/api/google-tasks/overview')
 
 export const saveGoogleTasksConfig = (config) => post('/api/google-tasks/config', config)
+
+export const fetchHarnesses = () => req('/api/harnesses')
