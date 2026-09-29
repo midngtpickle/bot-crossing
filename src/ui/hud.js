@@ -49,6 +49,7 @@ const ICON = {
   sound: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a8 8 0 0 1 0 11"/></svg>`,
   soundOff: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>`,
   refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`,
+  chevronRight: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>`,
 }
 
 const STAT_DEFS = [
@@ -324,42 +325,67 @@ export class Hud {
     )
     body.appendChild(sound)
 
-    // Google Tasks.
-    const gtasks = group('Google Tasks')
-    const gtasksHeader = gtasks.querySelector('h3')
-    if (gtasksHeader) {
-      gtasksHeader.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;'
-      const refreshBtn = document.createElement('button')
-      refreshBtn.type = 'button'
-      refreshBtn.className = 'btn btn-sm ghost gt-refresh-btn'
-      refreshBtn.title = 'Check Google Tasks for new, deleted, or updated lists'
-      refreshBtn.innerHTML = `${ICON.refresh}<span>Refresh</span>`
-      refreshBtn.style.cssText = 'height: 24px; padding: 0 8px; font-size: 11px; gap: 5px; font-weight: normal; text-transform: none; letter-spacing: normal;'
-      refreshBtn.addEventListener('click', async () => {
-        refreshBtn.disabled = true
-        refreshBtn.classList.add('spinning')
-        await this._refreshGoogleTasksSettings()
-        this.actions.poll?.()
-        refreshBtn.disabled = false
-        refreshBtn.classList.remove('spinning')
-        this.toast('Google Tasks refreshed', 'ok')
-      })
-      gtasksHeader.appendChild(refreshBtn)
-    }
+    // Google Tasks (collapsible accordion).
+    const gtasks = document.createElement('div')
+    gtasks.className = 'group gt-group'
+
+    const gtasksHeader = document.createElement('h3')
+    gtasksHeader.className = 'gt-group-header'
+
+    const toggleBtn = document.createElement('button')
+    toggleBtn.type = 'button'
+    toggleBtn.id = 'btn-gtasks-toggle'
+    toggleBtn.className = 'gt-toggle-btn'
+    toggleBtn.setAttribute('aria-expanded', 'false')
+    toggleBtn.setAttribute('aria-controls', 'gtasks-collapse-body')
+    toggleBtn.title = 'Toggle Google Tasks options'
+    toggleBtn.innerHTML = `<span class="gt-chevron">${ICON.chevronRight}</span><span>Google Tasks</span>`
+
+    const refreshBtn = document.createElement('button')
+    refreshBtn.type = 'button'
+    refreshBtn.className = 'btn btn-sm ghost gt-refresh-btn'
+    refreshBtn.title = 'Check Google Tasks for new, deleted, or updated lists'
+    refreshBtn.innerHTML = `${ICON.refresh}<span>Refresh</span>`
+    refreshBtn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      refreshBtn.disabled = true
+      refreshBtn.classList.add('spinning')
+      await this._refreshGoogleTasksSettings()
+      this.actions.poll?.()
+      refreshBtn.disabled = false
+      refreshBtn.classList.remove('spinning')
+      this.toast('Google Tasks refreshed', 'ok')
+    })
+
+    gtasksHeader.append(toggleBtn, refreshBtn)
+    gtasksHeader.addEventListener('click', (e) => {
+      if (e.target.closest('.gt-refresh-btn')) return
+      this.toggleGoogleTasks()
+    })
+    gtasks.appendChild(gtasksHeader)
+
+    const gtasksContent = document.createElement('div')
+    gtasksContent.className = 'gt-collapse-body'
+    gtasksContent.id = 'gtasks-collapse-body'
+    gtasksContent.hidden = true
 
     const gtasksHint = document.createElement('div')
-    gtasksHint.className = 'hint'
-    gtasksHint.style.cssText = 'margin-bottom: 10px; font-size: 12px; line-height: 1.4;'
+    gtasksHint.className = 'hint gt-hint'
     gtasksHint.textContent = 'Match task lists to project folders, or hide lists you do not want in the colony.'
-    gtasks.appendChild(gtasksHint)
+    gtasksContent.appendChild(gtasksHint)
 
     const gtasksListWrap = document.createElement('div')
     gtasksListWrap.className = 'gt-lists-wrap'
-    gtasksListWrap.innerHTML = '<div class="hint" style="padding: 6px 0;">Open settings to load task lists...</div>'
-    gtasks.appendChild(gtasksListWrap)
+    gtasksListWrap.innerHTML = '<div class="hint" style="padding: 6px 0;">Loading task lists...</div>'
+    gtasksContent.appendChild(gtasksListWrap)
+
+    gtasks.appendChild(gtasksContent)
     body.appendChild(gtasks)
 
     this._gtasksListWrap = gtasksListWrap
+    this._gtasksContent = gtasksContent
+    this._gtasksToggleBtn = toggleBtn
+    this._gtasksExpanded = false
     this._gtasksLoaded = false
   }
 
@@ -960,10 +986,27 @@ export class Hud {
     panel.inert = !open
     if (open) {
       this.$('#btn-close-settings').focus({ preventScroll: true })
-      this._refreshGoogleTasksSettings()
+      if (this._gtasksExpanded) {
+        this._refreshGoogleTasksSettings()
+      }
     } else if (panel.contains(document.activeElement)) {
       this.$('#btn-settings').focus({ preventScroll: true })
     }
+  }
+
+  toggleGoogleTasks(force) {
+    const next = force ?? !this._gtasksExpanded
+    this._gtasksExpanded = next
+    if (this._gtasksToggleBtn) {
+      this._gtasksToggleBtn.setAttribute('aria-expanded', String(next))
+    }
+    if (this._gtasksContent) {
+      this._gtasksContent.hidden = !next
+    }
+    if (next && !this._gtasksLoaded) {
+      this._refreshGoogleTasksSettings()
+    }
+    return next
   }
 
   async _refreshGoogleTasksSettings() {
@@ -971,6 +1014,7 @@ export class Hud {
     this._gtasksListWrap.innerHTML = '<div class="hint" style="padding: 6px 0;">Loading task lists...</div>'
     try {
       const data = await fetchGoogleTasksOverview()
+      this._gtasksLoaded = true
       if (!data || !data.detected) {
         this._gtasksListWrap.innerHTML =
           '<div class="hint" style="padding: 6px 0; color: #ff9882;">Google Tasks MCP is not detected or authenticated.</div>'
@@ -985,6 +1029,7 @@ export class Hud {
 
       this._renderGoogleTasksListItems(data)
     } catch (err) {
+      this._gtasksLoaded = false
       this._gtasksListWrap.innerHTML = `<div class="hint" style="color: #ff9882;">Could not load Google Tasks: ${escapeHtml(err.message || String(err))}</div>`
     }
   }

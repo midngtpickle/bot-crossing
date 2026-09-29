@@ -1572,6 +1572,109 @@ kbd {
 
 /* ── Google Tasks settings ──────────────────────────────────────────────────────── */
 
+.gt-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 9px;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.gt-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+  margin: 0;
+  color: var(--dim);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: left;
+  flex: 1;
+  min-width: 0;
+  transition: color 140ms ease;
+}
+
+.gt-toggle-btn:hover,
+.gt-group-header:hover .gt-toggle-btn {
+  color: var(--text);
+}
+
+.gt-toggle-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  border-radius: 4px;
+}
+
+.gt-toggle-btn .gt-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform: rotate(0deg);
+  opacity: 0.7;
+}
+
+.gt-toggle-btn .gt-chevron svg {
+  width: 14px;
+  height: 14px;
+}
+
+.gt-toggle-btn[aria-expanded='true'] {
+  color: var(--text);
+}
+
+.gt-toggle-btn[aria-expanded='true'] .gt-chevron {
+  transform: rotate(90deg);
+  opacity: 1;
+}
+
+.gt-refresh-btn {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  gap: 5px;
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: normal;
+  flex: none;
+}
+
+.gt-collapse-body[hidden] {
+  display: none;
+}
+
+.gt-collapse-body {
+  animation: gt-fade-in 180ms ease;
+}
+
+@keyframes gt-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gt-hint {
+  margin-bottom: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .gt-lists-wrap {
   display: flex;
   flex-direction: column;
