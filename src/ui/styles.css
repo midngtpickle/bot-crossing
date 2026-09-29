@@ -1637,3 +1637,13 @@ kbd {
   outline: 2px solid var(--accent);
 }
 
+@keyframes gt-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.gt-refresh-btn.spinning svg {
+  animation: gt-spin 0.75s linear infinite;
+}
+
+

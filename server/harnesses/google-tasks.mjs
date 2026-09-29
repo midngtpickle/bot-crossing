@@ -187,6 +187,8 @@ export function evaluateTaskStatus(tasks, now = Date.now()) {
  * custom folder override, hidden state, and all candidate project folders.
  */
 export async function getOverview() {
+  cachedThreads = []
+  lastScanAt = 0
   const config = await loadConfig()
   const isDetected = await detect()
   if (!isDetected) {

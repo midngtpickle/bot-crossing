@@ -48,6 +48,7 @@ const ICON = {
   orbit: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10.2" ry="4.6" transform="rotate(-24 12 12)"/><circle cx="21" cy="8.2" r="1.5" fill="currentColor" stroke="none"/></svg>`,
   sound: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a8 8 0 0 1 0 11"/></svg>`,
   soundOff: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>`,
+  refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`,
 }
 
 const STAT_DEFS = [
@@ -325,6 +326,27 @@ export class Hud {
 
     // Google Tasks.
     const gtasks = group('Google Tasks')
+    const gtasksHeader = gtasks.querySelector('h3')
+    if (gtasksHeader) {
+      gtasksHeader.style.cssText = 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;'
+      const refreshBtn = document.createElement('button')
+      refreshBtn.type = 'button'
+      refreshBtn.className = 'btn btn-sm ghost gt-refresh-btn'
+      refreshBtn.title = 'Check Google Tasks for new, deleted, or updated lists'
+      refreshBtn.innerHTML = `${ICON.refresh}<span>Refresh</span>`
+      refreshBtn.style.cssText = 'height: 24px; padding: 0 8px; font-size: 11px; gap: 5px; font-weight: normal; text-transform: none; letter-spacing: normal;'
+      refreshBtn.addEventListener('click', async () => {
+        refreshBtn.disabled = true
+        refreshBtn.classList.add('spinning')
+        await this._refreshGoogleTasksSettings()
+        this.actions.poll?.()
+        refreshBtn.disabled = false
+        refreshBtn.classList.remove('spinning')
+        this.toast('Google Tasks refreshed', 'ok')
+      })
+      gtasksHeader.appendChild(refreshBtn)
+    }
+
     const gtasksHint = document.createElement('div')
     gtasksHint.className = 'hint'
     gtasksHint.style.cssText = 'margin-bottom: 10px; font-size: 12px; line-height: 1.4;'
