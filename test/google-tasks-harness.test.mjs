@@ -92,13 +92,13 @@ test('saveConfig and loadConfig persist hidden lists and folder mappings', async
   const testConfig = {
     hiddenLists: ['test-hidden-list', 'Life'],
     folderMappings: {
-      'test-list-id': 'C:\\Users\\HP FURY\\GitHub\\pingers',
+      'test-list-id': '/projects/pingers',
     },
   }
   await saveConfig(testConfig)
   const loaded = await loadConfig()
   assert.deepEqual(loaded.hiddenLists, ['test-hidden-list', 'Life'])
-  assert.equal(loaded.folderMappings['test-list-id'], 'C:\\Users\\HP FURY\\GitHub\\pingers')
+  assert.equal(loaded.folderMappings['test-list-id'], '/projects/pingers')
 
   // Clean up
   await saveConfig({ hiddenLists: [], folderMappings: {} })
