@@ -10,6 +10,14 @@ It reads the harness's own files, on your own machine. Nothing is uploaded, ther
 account, and **it never writes to a harness at all** — `data/colony.json`, where the map lives,
 is the only file it writes anywhere.
 
+> **This fork** adds a Google Tasks harness and a Settings section to hide whole harnesses. It is
+> the one part that breaks the rules below: it starts a local Google Tasks MCP server (default
+> `~/GitHub/google-tasks-mcp`, override with `GOOGLE_TASKS_MCP_DIR`) which talks to Google, and it
+> writes a second file, `data/google-tasks.json` — which task lists are hidden and which folder each
+> maps to. Each task list that matches a project folder becomes a bot; each open task is an errand.
+> Everything else in this README describes upstream, where `data/colony.json` is the only file
+> written and nothing touches the network.
+
 > **Status:** published as-is. I built this for myself and cannot promise to maintain it —
 > issues and PRs are welcome but may go unanswered, and forking is an entirely reasonable
 > thing to do. [CONTRIBUTING.md](CONTRIBUTING.md) sets out what to expect.
@@ -824,8 +832,8 @@ What it touches on disk, in full:
 | | |
 | --- | --- |
 | Reads | Your harness's own session records and transcripts |
-| Writes | `data/colony.json`, and **one** `isArchived` field per archived thread |
-| Sends | Nothing. No network calls, no telemetry, no account |
+| Writes | `data/colony.json`, and **one** `isArchived` field per archived thread. This fork also writes `data/google-tasks.json` |
+| Sends | Nothing, no telemetry, no account. This fork's Google Tasks harness runs a local MCP server that calls Google's Tasks API |
 
 `data/colony.json` holds the names and paths of the repos you work in, so it is gitignored —
 worth knowing before you copy one into an issue.

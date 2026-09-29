@@ -1,14 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import googleTasks, {
-  normalizeName,
-  evaluateTaskStatus,
-  openThread,
-  newSession,
-  detect,
-  loadConfig,
-  saveConfig,
-} from '../server/harnesses/google-tasks.mjs'
+import fsp from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+
+// The adapter reads BOT_CROSSING_DATA once, at import. Point it at a scratch directory first, or
+// the config test below writes over the real data/google-tasks.json.
+const scratch = await fsp.mkdtemp(path.join(os.tmpdir(), 'bot-crossing-gtasks-'))
+process.env.BOT_CROSSING_DATA = scratch
+const { default: googleTasks, normalizeName, evaluateTaskStatus, openThread, newSession, loadConfig, saveConfig } =
+  await import(`../server/harnesses/google-tasks.mjs?${scratch}`)
+test.after(() => fsp.rm(scratch, { recursive: true, force: true }))
 
 test('google-tasks harness adheres to the harness interface contract', () => {
   assert.equal(googleTasks.id, 'google-tasks')

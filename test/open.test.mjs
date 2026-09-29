@@ -33,11 +33,12 @@ test('asked for a terminal, present never opens the app instead', async () => {
   assert.match((await present({ ok: true, url: '', command: gone }, 'terminal')).error, /not on this machine/)
 })
 
-test('asked for a terminal on Windows, present says so rather than trying', async () => {
-  const command = { argv: ['/bin/true'], cwd: os.tmpdir() }
-  const shown = await withPlatform('win32', () => present({ ok: true, url: '', command }, 'terminal'))
-  assert.equal(shown.ok, false)
-  assert.match(shown.error, /Windows/)
+// Windows has a terminal of its own now (win-terminal.mjs), so present() no longer refuses there.
+// Only the input validation is exercised: anything further would open a real window.
+test('the Windows terminal opener refuses a command that is not already absolute', async () => {
+  const { openInTerminalWindows } = await import('../server/lib/win-terminal.mjs')
+  assert.equal((await openInTerminalWindows(['claude'], os.tmpdir())).ok, false)
+  assert.equal((await openInTerminalWindows([], os.tmpdir())).ok, false)
 })
 
 test("an adapter's own refusal passes through whatever the page asked for", async () => {

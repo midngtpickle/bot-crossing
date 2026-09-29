@@ -1689,17 +1689,6 @@ kbd {
   opacity: 1;
 }
 
-.gt-refresh-btn {
-  height: 24px;
-  padding: 0 8px;
-  font-size: 11px;
-  gap: 5px;
-  font-weight: normal;
-  text-transform: none;
-  letter-spacing: normal;
-  flex: none;
-}
-
 .gt-collapse-body[hidden] {
   display: none;
 }
@@ -1790,13 +1779,5 @@ kbd {
   outline: 2px solid var(--accent);
 }
 
-@keyframes gt-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.gt-refresh-btn.spinning svg {
-  animation: gt-spin 0.75s linear infinite;
-}
 
 

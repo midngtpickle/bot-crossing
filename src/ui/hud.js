@@ -48,7 +48,6 @@ const ICON = {
   orbit: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10.2" ry="4.6" transform="rotate(-24 12 12)"/><circle cx="21" cy="8.2" r="1.5" fill="currentColor" stroke="none"/></svg>`,
   sound: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a8 8 0 0 1 0 11"/></svg>`,
   soundOff: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>`,
-  refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`,
   chevronRight: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>`,
 }
 
@@ -387,25 +386,8 @@ export class Hud {
     toggleBtn.title = 'Toggle Google Tasks options'
     toggleBtn.innerHTML = `<span class="gt-chevron">${ICON.chevronRight}</span><span>Google Tasks</span>`
 
-    const refreshBtn = document.createElement('button')
-    refreshBtn.type = 'button'
-    refreshBtn.className = 'btn btn-sm ghost gt-refresh-btn'
-    refreshBtn.title = 'Check Google Tasks for new, deleted, or updated lists'
-    refreshBtn.innerHTML = `${ICON.refresh}<span>Refresh</span>`
-    refreshBtn.addEventListener('click', async (e) => {
-      e.stopPropagation()
-      refreshBtn.disabled = true
-      refreshBtn.classList.add('spinning')
-      await this._refreshGoogleTasksSettings()
-      this.actions.poll?.()
-      refreshBtn.disabled = false
-      refreshBtn.classList.remove('spinning')
-      this.toast('Google Tasks refreshed', 'ok')
-    })
-
-    gtasksHeader.append(toggleBtn, refreshBtn)
-    gtasksHeader.addEventListener('click', (e) => {
-      if (e.target.closest('.gt-refresh-btn')) return
+    gtasksHeader.appendChild(toggleBtn)
+    gtasksHeader.addEventListener('click', () => {
       this.toggleGoogleTasks()
     })
     gtasks.appendChild(gtasksHeader)
@@ -1165,7 +1147,8 @@ export class Hud {
 
     for (const list of data.lists) {
       const card = document.createElement('div')
-      const isHidden = hiddenSet.has(list.id) || hiddenSet.has(list.title)
+      // The server's flag, not just id/title: a list can also be hidden by its normalised name.
+      const isHidden = list.hidden ?? (hiddenSet.has(list.id) || hiddenSet.has(list.title))
       card.className = `gt-list-card ${isHidden ? 'hidden-list' : ''}`
 
       // Header row with title and Hide/Show toggle
@@ -1185,7 +1168,7 @@ export class Hud {
       hideBtn.title = isHidden ? 'Show this list as a bot in the colony' : 'Hide this list from the colony'
 
       hideBtn.addEventListener('click', () => {
-        const nowHidden = !hiddenSet.has(list.id) && !hiddenSet.has(list.title)
+        const nowHidden = !card.classList.contains('hidden-list')
         if (nowHidden) {
           hiddenSet.add(list.id)
           card.classList.add('hidden-list')
@@ -1383,10 +1366,17 @@ function statusClass(status) {
  * part that identifies it. CSS can only ellipsise the tail, and `direction: rtl` mangles a
  * leading `~`, so the trim is done here and the whole path lives in the title attribute.
  */
+/** Same folding as the adapter's `normalizeName`, so a name-hidden list can be un-hidden here. */
+function normalizeListName(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
 function shortPath(dir, max = 30) {
-  const home = dir.replace(/^\/Users\/[^/]+/, '~')
+  const home = dir.replace(/^\/Users\/[^/]+/, '~').replace(/^[A-Za-z]:[\\/]Users[\\/][^\\/]+/, '~')
   if (home.length <= max) return home
-  const parts = home.split('/')
+  // Both separators: a Windows path has no '/' to split on, and would come out as one long
+  // segment behind a leading ellipsis.
+  const parts = home.split(/[\\/]/)
   let out = parts.pop() || ''
   while (parts.length) {
     const next = parts.pop()

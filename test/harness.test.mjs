@@ -233,7 +233,12 @@ async function fakeClaudeWithErrands(errandRecords) {
 }
 
 async function claudeWithErrands(home) {
+  // os.homedir() reads USERPROFILE on Windows and HOME everywhere else.
   process.env.HOME = home
+  process.env.USERPROFILE = home
+  // The desktop app's records live under APPDATA on Windows, outside the fake home: without
+  // this the scan also reads this machine's real threads and `[thread]` is one of those.
+  process.env.BOT_CROSSING_CLAUDE_DESKTOP = path.join(home, 'no-desktop-app')
   const mod = await import(`../server/harnesses/claude-code.mjs?${home}`)
   return mod.default
 }
@@ -242,6 +247,7 @@ const midTurn = { type: 'assistant', message: { content: [{ type: 'tool_use' }],
 
 test('a running subagent is reported with the brief it was given, however long that is', async () => {
   const realHome = process.env.HOME
+  const realProfile = process.env.USERPROFILE
   // Longer than any head this could reasonably read at once: a brief that is truncated away
   // yields no task at all, because readHead drops the line it lands in the middle of.
   const brief = `repair the raster pipeline ${'x'.repeat(20 * 1024)}`
@@ -252,11 +258,14 @@ test('a running subagent is reported with the brief it was given, however long t
   assert.equal(thread.subagents[0].id, 'agent-abc')
   assert.match(thread.subagents[0].task, /^repair the raster pipeline/)
   process.env.HOME = realHome
+  if (realProfile === undefined) delete process.env.USERPROFILE
+  else process.env.USERPROFILE = realProfile
   await fsp.rm(home, { recursive: true, force: true })
 })
 
 test('a subagent that has handed its answer back is finished, however recently it wrote', async () => {
   const realHome = process.env.HOME
+  const realProfile = process.env.USERPROFILE
   const home = await fakeClaudeWithErrands([
     { type: 'user', message: { content: 'summarise the diff' } },
     { type: 'assistant', message: { content: [{ type: 'text', text: 'here it is' }], stop_reason: 'end_turn' } },
@@ -265,6 +274,8 @@ test('a subagent that has handed its answer back is finished, however recently i
   const [thread] = await h.scanThreads()
   assert.equal(thread.subagents, undefined, 'a finished errand is not an astronaut on the map')
   process.env.HOME = realHome
+  if (realProfile === undefined) delete process.env.USERPROFILE
+  else process.env.USERPROFILE = realProfile
   await fsp.rm(home, { recursive: true, force: true })
 })
 

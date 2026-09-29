@@ -1,7 +1,7 @@
 /**
  * Harness adapter: Google Tasks (via Google Tasks MCP).
  *
- * Connects to the local Google Tasks MCP server (c:/Users/HP FURY/GitHub/google-tasks-mcp)
+ * Connects to the local Google Tasks MCP server (default ~/GitHub/google-tasks-mcp)
  * over stdio using @modelcontextprotocol/sdk.
  *
  * When a Google Tasks list name matches a local project folder (such as 'pingers'),
@@ -15,7 +15,6 @@
  * - Configuration for manual folder mapping and hiding specific lists (persisted in data/google-tasks.json).
  */
 import fsp from 'node:fs/promises'
-import { existsSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -41,6 +40,18 @@ let lastScanAt = 0
 let activeClient = null
 let activeTransport = null
 let connectPromise = null
+let queue = Promise.resolve()
+
+/**
+ * One MCP session at a time. The scan and the settings overview both close the shared client
+ * when they finish, so two overlapping ones would pull the connection out from under each other
+ * mid-call.
+ */
+function serialised(fn) {
+  const run = queue.then(fn, fn)
+  queue = run.catch(() => {})
+  return run
+}
 
 /** Check whether Google Tasks MCP is configured and authenticated. */
 export async function detect() {
@@ -74,7 +85,11 @@ export async function loadConfig() {
 export async function saveConfig(nextConfig) {
   const config = {
     hiddenLists: Array.isArray(nextConfig?.hiddenLists) ? nextConfig.hiddenLists.map(String) : [],
-    folderMappings: nextConfig?.folderMappings && typeof nextConfig.folderMappings === 'object' ? nextConfig.folderMappings : {},
+    // Values become a thread's cwd, so only strings survive.
+    folderMappings: Object.fromEntries(
+      Object.entries(nextConfig?.folderMappings && typeof nextConfig.folderMappings === 'object' ? nextConfig.folderMappings : {})
+        .filter(([, v]) => typeof v === 'string' && v)
+    ),
   }
   await fsp.mkdir(DATA_DIR, { recursive: true })
   await fsp.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2))
@@ -186,7 +201,11 @@ export function evaluateTaskStatus(tasks, now = Date.now()) {
  * Overview for settings UI: lists all task lists with their auto-detected folder,
  * custom folder override, hidden state, and all candidate project folders.
  */
-export async function getOverview() {
+export function getOverview() {
+  return serialised(overview)
+}
+
+async function overview() {
   cachedThreads = []
   lastScanAt = 0
   const config = await loadConfig()
@@ -252,10 +271,16 @@ export async function getOverview() {
 
 /** Scan Google Tasks and return a Thread for each list matching a project folder. */
 export async function scanThreads() {
+  if (Date.now() - lastScanAt < CACHE_TTL_MS) return cachedThreads
+  return serialised(scan)
+}
+
+async function scan() {
   const now = Date.now()
-  if (cachedThreads.length > 0 && now - lastScanAt < CACHE_TTL_MS) {
-    return cachedThreads
-  }
+  // Re-checked inside the queue: a scan that was waiting on another has its answer already.
+  // An empty result counts too — otherwise a machine with no matching lists would start the MCP
+  // server and hit Google on every 15-second poll.
+  if (now - lastScanAt < CACHE_TTL_MS) return cachedThreads
 
   if (!(await detect())) return []
 
@@ -274,7 +299,11 @@ export async function scanThreads() {
 
     const rawListsText = listsResult?.content?.[0]?.text || '[]'
     const lists = JSON.parse(rawListsText)
-    if (!Array.isArray(lists) || lists.length === 0) return []
+    if (!Array.isArray(lists) || lists.length === 0) {
+      cachedThreads = []
+      lastScanAt = now
+      return cachedThreads
+    }
 
     // 2. Discover local project candidates
     const candidateDirs = await findCandidateProjectDirs()
@@ -387,6 +416,8 @@ export async function scanThreads() {
     return threads
   } catch (err) {
     console.warn('bot-crossing: Google Tasks scan failed:', err?.message || err)
+    // Back off for a TTL rather than respawning the server every poll while it is broken.
+    lastScanAt = now
     return cachedThreads
   } finally {
     closeClient()

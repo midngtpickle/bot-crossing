@@ -944,17 +944,6 @@ async function refreshHarnessStatus() {
   } catch {}
 }
 
-const HARNESS_DISPLAY_NAMES = {
-  'antigravity': 'Antigravity',
-  'claude-code': 'Claude Code',
-  'opencode': 'OpenCode',
-  'cursor': 'Cursor',
-  'codex': 'Codex',
-  'google-tasks': 'Google Tasks',
-  'kilocode': 'Kilo Code',
-  'hermes': 'Hermes',
-}
-
 function getHarnessCatalog() {
   const hiddenH = new Set(state.hiddenHarnesses || [])
   const counts = new Map()
@@ -986,7 +975,7 @@ function getHarnessCatalog() {
     const isDetected = detectedHarnessSet.has(id)
     if (count === 0 && !isDetected) continue
 
-    const name = names.get(id) || HARNESS_DISPLAY_NAMES[id] || id
+    const name = names.get(id) || id
     catalog.push({
       id,
       name,
