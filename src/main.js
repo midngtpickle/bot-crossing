@@ -356,12 +356,15 @@ function select(id, { fly = false } = {}) {
   const thread = threads.find((t) => t.id === id) || agent.thread
   hud.setSelection(agent, thread)
   // It answers. One of six little phrases, from where it is standing, never twice in a row.
+  // A pigeon coos instead, from one of three.
   if (agent.id !== lastVoiced) {
     lastVoiced = agent.id
-    let n = 1 + Math.floor(Math.random() * 6)
-    if (n === lastPhrase) n = (n % 6) + 1
+    const pigeon = agent.kind === 'pigeon'
+    const count = pigeon ? 3 : 6
+    let n = 1 + Math.floor(Math.random() * count)
+    if (n === lastPhrase) n = (n % count) + 1
     lastPhrase = n
-    ambience.play(`select-${n}`, { x: agent.pos.x, y: agent.pos.y + 0.8, z: agent.pos.z, gain: 0.9 })
+    ambience.play(pigeon ? `coo-${n}` : `select-${n}`, { x: agent.pos.x, y: agent.pos.y + (pigeon ? 0.4 : 0.8), z: agent.pos.z, gain: 0.9 })
   }
   // Picking somebody is also picking the zone they are standing on: the sidebar follows.
   if (thread?.project && colony.plots.has(thread.project)) selectedProject = thread.project
@@ -1244,7 +1247,7 @@ function soundWorld() {
     n++
   }
   for (const agent of colony.astronauts.agents) {
-    if (agent.state === 'at-site' && agent.status === 'working' && agent.scale > 0.5) {
+    if (agent.kind !== 'pigeon' && agent.state === 'at-site' && agent.status === 'working' && agent.scale > 0.5) {
       take(`work:${agent.id}`, 'work-hammer', agent.pos.x, agent.pos.y + 0.6, agent.pos.z, 0.9)
     }
   }

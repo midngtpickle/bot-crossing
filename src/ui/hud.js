@@ -5,6 +5,7 @@ import { STATUS_LABEL } from '../game/colony.js'
 import { FACE, FRAME_COLS, FRAME_ROWS } from '../agents/faces.js'
 import { PLOT_PALETTE, hashString } from '../world/plots.js'
 import { fetchGoogleTasksOverview, saveGoogleTasksConfig } from '../game/api.js'
+import { drawPigeonAvatar, pigeonAvatarKey } from './pigeon-avatar.js'
 
 /**
  * The whole HUD, in plain DOM.
@@ -912,6 +913,16 @@ export class Hud {
   updateAvatar(faceAtlasCanvas) {
     if (!this.selected || !faceAtlasCanvas) return
     const agent = this.selected.agent
+    // A pigeon has no screen-face: it gets a drawn portrait instead — see pigeon-avatar.js.
+    if (agent.kind === 'pigeon') {
+      const band = cssFromGlow(agent.bandColor)
+      const now = performance.now()
+      const key = pigeonAvatarKey(agent.status, band, now)
+      if (this._avatarState.frame === key) return
+      this._avatarState = { frame: key, color: band }
+      drawPigeonAvatar(this.avatarCtx, 108, agent.status, band, now)
+      return
+    }
     const frame = agent.faceFrame ?? FACE.idle
     const color = agent.eye
     const css = cssFromGlow(color)
