@@ -72,6 +72,10 @@ const TABLE = {
   'select-4': { kind: 'event', gain: 0.55 },
   'select-5': { kind: 'event', gain: 0.55 },
   'select-6': { kind: 'event', gain: 0.55 },
+  /** What a carrier pigeon (a Google Task) says when you click it instead: a soft coo. */
+  'coo-1': { kind: 'event', gain: 0.75 },
+  'coo-2': { kind: 'event', gain: 0.75 },
+  'coo-3': { kind: 'event', gain: 0.75 },
   /**
    * "Somebody needs you." The only sound that is allowed to interrupt, so it is the one
    * that must never grate: two soft marimba notes a fifth apart, and nothing else.

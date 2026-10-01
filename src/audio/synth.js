@@ -875,6 +875,47 @@ function beepBoop(blips) {
   }
 }
 
+/**
+ * A pigeon's coo: throaty, low, and burbling. Each syllable is a triangle wave through a soft
+ * lowpass, its pitch following a [from, peak, to] contour, with a fast tremolo on the level
+ * for the rolling "rrr" in the throat and a whisper of breath under it. The table is
+ * [from Hz, peak Hz, to Hz, seconds, burble Hz] per syllable.
+ */
+function pigeonCoo(syllables) {
+  return (ctx, dest, now, level, noise) => {
+    let t = now
+    for (const [f0, fPeak, f1, dur, burble] of syllables) {
+      const lp = filter(ctx, 'lowpass', 900, 0.7)
+      const out = gain(ctx, 0, dest)
+      lp.connect(out)
+      // The throat: a level that rolls at `burble` Hz around three-quarters, never to silence.
+      const throat = gain(ctx, 0.75, lp)
+      const lfo = osc(ctx, 'sine', burble, gain(ctx, 0.25, throat.gain), t)
+
+      const body = osc(ctx, 'triangle', f0, throat, t)
+      const over = osc(ctx, 'sine', f0 * 2, gain(ctx, 0.18, throat), t)
+      for (const [o, k] of [[body, 1], [over, 2]]) {
+        o.frequency.setValueAtTime(f0 * k, t)
+        o.frequency.exponentialRampToValueAtTime(fPeak * k, t + dur * 0.35)
+        o.frequency.exponentialRampToValueAtTime(f1 * k, t + dur)
+      }
+      // Swelling in and dying away, the way a coo is pushed out of a puffed chest.
+      const end = envelope(out.gain, t, level * 0.62, dur * 0.3, dur * 0.8, dur * 0.25)
+      for (const o of [body, over, lfo]) o.stop(end + 0.05)
+
+      if (noise) {
+        const bp = filter(ctx, 'bandpass', fPeak * 2.2, 1.4)
+        const breath = gain(ctx, 0, dest)
+        bp.connect(breath)
+        burst(ctx, noise.pink, bp, t, dur + 0.1)
+        envelope(breath.gain, t, level * 0.05, dur * 0.3, dur * 0.6, dur * 0.2)
+      }
+      t += dur + 0.06
+    }
+    return t + 0.25
+  }
+}
+
 function oneShot(fn) {
   return (ctx, dest, o, noise) => {
     const v = new Voice(ctx, dest)
@@ -932,6 +973,10 @@ export const GENERATORS = {
   'select-4': oneShot(robotPhrase([[520, 780, 0.08], [780, 1040, 0.08], [1040, 1300, 0.12]])),
   'select-5': oneShot(robotPhrase([[980, 980, 0.07], [980, 980, 0.07], [1470, 1240, 0.14]])),
   'select-6': oneShot(robotPhrase([[1200, 900, 0.1], [600, 1000, 0.16]])),
+  // coo, roo-coo · a single long rolling coo · coo-coo-roo
+  'coo-1': oneShot(pigeonCoo([[340, 420, 360, 0.2, 22], [330, 470, 300, 0.42, 26]])),
+  'coo-2': oneShot(pigeonCoo([[300, 440, 280, 0.62, 24]])),
+  'coo-3': oneShot(pigeonCoo([[360, 410, 350, 0.16, 20], [360, 410, 350, 0.16, 20], [320, 480, 290, 0.48, 27]])),
   'chime-attention': oneShot(ONE_SHOTS.chime),
 
   // Positional loops

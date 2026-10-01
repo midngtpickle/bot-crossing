@@ -1112,6 +1112,15 @@ export class Colony {
       // under it. Everything thrown off an astronaut has to land back on the same surface.
       const ground = agent.groundY || 0
 
+      // A pigeon has no hammer and no boots: just its snooze, and a ship that notices it go.
+      if (agent.kind === 'pigeon') {
+        if (agent.state === 'at-site' && agent.status === 'sleeping' && Math.random() < dt * 0.35) {
+          this.particles.snooze(agent.pos.x + 0.1, agent.pos.y + 0.6, agent.pos.z + 0.1)
+        }
+        if (agent.state === 'spawning' && Math.random() < dt * 3) this.ship.ping()
+        continue
+      }
+
       if (agent.state === 'at-site' && agent.status === 'working') {
         // Sparks on the downbeat of the hammer swing, not every frame.
         const swing = Math.sin(agent.workSwing)

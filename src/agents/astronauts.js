@@ -8,6 +8,7 @@ import { bendPoint, withCurve } from '../core/curve.js'
 import { Props, CHECK_LEN, CHECK_EVERY, pickProp } from './props.js'
 import { projectHitPoint, bodyHitDistance } from './picking.js'
 import { helmetGeometry, visorGeometry, screenGeometry } from './model.js'
+import { Pigeons, isPigeonThread } from './pigeons.js'
 
 /**
  * Every astronaut in the colony, batched into a fixed set of instanced draw calls.
@@ -242,6 +243,8 @@ export class Astronauts {
     // What a working astronaut pulls out now and then to check on things — see props.js.
     this.props = new Props(R, capacity)
     for (const mesh of this.props.meshes) this.group.add(mesh)
+    // Google Tasks are carrier pigeons rather than bots — see pigeons.js.
+    this.pigeons = new Pigeons(this.group, capacity)
     this._applyShadowFlags()
 
     // Ground rings for hover + selection. Two ordinary meshes, moved around as needed.
@@ -437,6 +440,7 @@ export class Astronauts {
     // The body is the shadow that matters — it is the whole silhouette.
     if (this.crew) this.crew.castShadow = on
     this.props?.setShadows(on)
+    this.pigeons?.setShadows(on)
   }
 
   /** The colony hands over the navigation grid once it has been built. */
@@ -464,11 +468,13 @@ export class Astronauts {
           mesh.material.dispose()
         }
         this.group.remove(this.hoverRing, this.selectRing)
+        this.pigeons.dispose()
         this._buildMeshes(wanted)
         this.rig = null
         this.setRig(rig)
         for (const agent of this.agents) {
           agent.index = -1
+          agent.pIndex = -1
           agent.colorDirty = true
         }
       }
@@ -518,6 +524,16 @@ export class Astronauts {
       const existing = this.byId.get(entry.id)
       if (existing) {
         this._updateAgent(existing, entry)
+        continue
+      }
+      // A pigeon never queues for the ramp: it waits inside until its bot comes out, then
+      // flies out with it. See `Pigeons.release`.
+      if (isPigeonThread(entry.thread)) {
+        const agent = this._spawnAgent(entry, trickle || !entry.known)
+        if (agent.state === 'spawning') {
+          agent.state = 'nesting'
+          agent.scale = 0
+        }
         continue
       }
       if (trickle) {
@@ -654,6 +670,7 @@ export class Astronauts {
       walkAmp: 0,
       screen: new THREE.Vector3(), // filled by the picker each frame
     }
+    if (isPigeonThread(entry.thread)) this.pigeons.init(agent)
     this._applyStatus(agent, entry.status)
     this.agents.push(agent)
     this.byId.set(agent.id, agent)
@@ -675,7 +692,7 @@ export class Astronauts {
       // scan hands the real site back, and without this it would stand there for good,
       // parked in the middle of somebody else's zone.
       const away = Math.hypot(agent.site.x - agent.pos.x, agent.site.z - agent.pos.z)
-      if (moved && agent.state === 'at-site' && away > ARRIVE_RADIUS) {
+      if (moved && agent.kind !== 'pigeon' && agent.state === 'at-site' && away > ARRIVE_RADIUS) {
         agent.state = 'walking'
         agent.stateAge = 0
         agent.pathVersion = -1
@@ -699,6 +716,11 @@ export class Astronauts {
 
     if (status === 'leaving') {
       this._sendHome(agent)
+      return
+    }
+    // A pigeon stays where it is and just changes what it is doing there.
+    if (agent.kind === 'pigeon') {
+      this.pigeons.applyStatus(agent)
       return
     }
     // A spawning agent keeps walking out of the ship, a queued one stays inside it;
@@ -726,7 +748,7 @@ export class Astronauts {
   _sendHome(agent) {
     if (agent.state === 'leaving' || agent.state === 'gone') return
     // Still inside the ship: nothing to walk home.
-    if (agent.state === 'queued') return this._drop(agent)
+    if (agent.state === 'queued' || agent.state === 'nesting') return this._drop(agent)
     agent.state = 'leaving'
     // The status goes too. A sleeper's status is what sits it down: the clip picker reads
     // it whenever the body is not moving, so a dormant astronaut sent home would stand up,
@@ -757,6 +779,7 @@ export class Astronauts {
     this._routeBudget = PATH_BUDGET
 
     this._releaseQueued(dt)
+    this.pigeons.assignCompanions(this.agents)
     for (let i = this.agents.length - 1; i >= 0; i--) {
       const agent = this.agents[i]
       if (agent.state === 'queued') {
@@ -764,9 +787,14 @@ export class Astronauts {
         continue
       }
       agent.stateAge += dt
-      this._step(agent, dt, elapsed, anim)
-      this._animate(agent, dt, anim)
-      animateFace(agent, dt, anim)
+      if (agent.kind === 'pigeon') {
+        if (agent.state === 'nesting') this.pigeons.release(agent, this)
+        else this.pigeons.step(agent, this, dt, elapsed, anim)
+      } else {
+        this._step(agent, dt, elapsed, anim)
+        this._animate(agent, dt, anim)
+        animateFace(agent, dt, anim)
+      }
 
       if (agent.state === 'gone') {
         this.agents.splice(i, 1)
@@ -1075,7 +1103,7 @@ export class Astronauts {
     const buckets = this._buckets
     buckets.clear()
     for (const agent of this.agents) {
-      if (agent.state === 'gone' || agent.scale < 0.2) continue
+      if (agent.state === 'gone' || agent.scale < 0.2 || agent.kind === 'pigeon') continue
       const key = ((agent.pos.x / 2) | 0) * 10007 + ((agent.pos.z / 2) | 0)
       let list = buckets.get(key)
       if (!list) buckets.set(key, (list = []))
@@ -1472,7 +1500,7 @@ export class Astronauts {
       // cap. Archive one thread on a colony sitting at the cap and there is briefly one more
       // agent than there are slots, which is exactly when the colony would empty.
       if (i >= this.capacity) break
-      if (agent.state === 'gone') continue
+      if (agent.state === 'gone' || agent.kind === 'pigeon') continue
       const s = agent.scale
       if (s <= 0.001) continue
 
@@ -1567,8 +1595,9 @@ export class Astronauts {
       if (staticDirty && crew.instanceColor) crew.instanceColor.needsUpdate = true
     }
     this.frameAttr.needsUpdate = true
-    this.visibleCount = n
     this._drawnAgents.length = n
+    this.pigeonCount = this.pigeons.write(this.agents, elapsed)
+    this.visibleCount = n + this.pigeonCount
   }
 
   // ── picking ─────────────────────────────────────────────────────────────────────────
@@ -1612,43 +1641,7 @@ export class Astronauts {
         d = Math.min(d, bodyHitDistance(ndcX * aspect, ndcY, body[1], body[i]))
       }
 
-      // The badge over an astronaut's head is what you actually aim at when one wants you —
-      // it is bigger than the astronaut, it is the thing that caught your eye, and it sits
-      // clear of the crowd. So the whole bubble picks the astronaut it belongs to, not just
-      // a point at its middle.
-      //
-      // The geometry has to be recomputed the way `indicators.js` draws it rather than
-      // guessed at. That shader anchors the quad just above the helmet and then lifts it by
-      // half its own height *in view space*, where the height itself grows with distance so
-      // the badge holds a constant pixel size. A fixed world-space offset cannot follow that:
-      // it is right at one zoom and most of a metre low at another, which is why this used to
-      // demand a click on the astronaut's head.
-      const size = agent.badgeSize || 0
-      if (size > 0) {
-        // View space, exactly as the vertex shader has it.
-        bendPoint(b.set(agent.pos.x, agent.badgeY, agent.pos.z)).applyMatrix4(camera.matrixWorldInverse)
-        const scale = size * (2 + -b.z * 0.22)
-        b.y += scale * 0.5
-        // A second point one half-height higher gives the quad's on-screen radius without
-        // re-deriving the projection: whatever the camera does to one, it does to both.
-        lifted.copy(b)
-        lifted.y += scale * 0.5
-        b.applyMatrix4(camera.projectionMatrix)
-        lifted.applyMatrix4(camera.projectionMatrix)
-        if (b.z <= 1) {
-          // The quad is square, and `bx` is already in the same units as `by`, so one
-          // half-extent covers both axes.
-          const half = Math.abs(lifted.y - b.y)
-          const bx = (b.x - ndcX) * aspect
-          const by = b.y - ndcY
-          // Anywhere inside the bubble is a hit outright; outside it, the distance to its
-          // edge, so a near-miss still competes with a nearer astronaut on the same pixel.
-          const ox = Math.max(0, Math.abs(bx) - half)
-          const oy = Math.max(0, Math.abs(by) - half)
-          const bd = Math.hypot(ox, oy)
-          if (bd < d) d = bd
-        }
-      }
+      d = Math.min(d, this._badgeDistance(agent, camera, ndcX, ndcY, aspect))
       if (d > maxDist) continue
       // Break ties by depth so the nearer of two overlapping agents wins.
       const score = d + depth * 0.05
@@ -1657,12 +1650,69 @@ export class Astronauts {
         best = agent
       }
     }
+    for (const agent of this.pigeons.drawn) {
+      if (agent.scale < 0.3 || agent.state === 'gone') continue
+      const hit = this.pigeons.hitDistance(agent, camera, ndcX, ndcY, aspect)
+      if (hit.depth === Infinity) continue
+      const d = Math.min(hit.d, this._badgeDistance(agent, camera, ndcX, ndcY, aspect))
+      if (d > maxDist) continue
+      const score = d + hit.depth * 0.05
+      if (score < bestScore) {
+        bestScore = score
+        best = agent
+      }
+    }
     return best
+  }
+
+  /** Screen distance from the cursor to the status bubble over an agent, or Infinity. */
+  _badgeDistance(agent, camera, ndcX, ndcY, aspect) {
+    const b = this._pickBadge
+    const lifted = this._pickLifted
+    let d = Infinity
+    // The badge over an astronaut's head is what you actually aim at when one wants you —
+    // it is bigger than the astronaut, it is the thing that caught your eye, and it sits
+    // clear of the crowd. So the whole bubble picks the astronaut it belongs to, not just
+    // a point at its middle.
+    //
+    // The geometry has to be recomputed the way `indicators.js` draws it rather than
+    // guessed at. That shader anchors the quad just above the helmet and then lifts it by
+    // half its own height *in view space*, where the height itself grows with distance so
+    // the badge holds a constant pixel size. A fixed world-space offset cannot follow that:
+    // it is right at one zoom and most of a metre low at another, which is why this used to
+    // demand a click on the astronaut's head.
+    const size = agent.badgeSize || 0
+    if (size > 0) {
+      // View space, exactly as the vertex shader has it.
+      bendPoint(b.set(agent.pos.x, agent.badgeY, agent.pos.z)).applyMatrix4(camera.matrixWorldInverse)
+      const scale = size * (2 + -b.z * 0.22)
+      b.y += scale * 0.5
+      // A second point one half-height higher gives the quad's on-screen radius without
+      // re-deriving the projection: whatever the camera does to one, it does to both.
+      lifted.copy(b)
+      lifted.y += scale * 0.5
+      b.applyMatrix4(camera.projectionMatrix)
+      lifted.applyMatrix4(camera.projectionMatrix)
+      if (b.z <= 1) {
+        // The quad is square, and `bx` is already in the same units as `by`, so one
+        // half-extent covers both axes.
+        const half = Math.abs(lifted.y - b.y)
+        const bx = (b.x - ndcX) * aspect
+        const by = b.y - ndcY
+        // Anywhere inside the bubble is a hit outright; outside it, the distance to its
+        // edge, so a near-miss still competes with a nearer astronaut on the same pixel.
+        const ox = Math.max(0, Math.abs(bx) - half)
+        const oy = Math.max(0, Math.abs(by) - half)
+        const bd = Math.hypot(ox, oy)
+        d = bd
+      }
+    }
+    return d
   }
 
   setHover(agent) {
     this.hoverRing.visible = Boolean(agent)
-    if (agent) this.hoverRing.position.set(agent.pos.x, agent.pos.y + 0.03, agent.pos.z)
+    if (agent) this.hoverRing.position.set(agent.pos.x, ringY(agent) + 0.03, agent.pos.z)
   }
 
   setSelected(agent) {
@@ -1676,7 +1726,7 @@ export class Astronauts {
         this.setSelected(null)
       } else {
         const a = this.selected
-        this.selectRing.position.set(a.pos.x, a.pos.y + 0.035, a.pos.z)
+        this.selectRing.position.set(a.pos.x, ringY(a) + 0.035, a.pos.z)
         this.selectRing.rotation.y = elapsed * 0.6
         const s = 1 + Math.sin(elapsed * 3) * 0.05
         this.selectRing.scale.setScalar(s)
@@ -1689,6 +1739,10 @@ export class Astronauts {
   celebrate(id) {
     const agent = this.byId.get(id)
     if (!agent) return
+    if (agent.kind === 'pigeon') {
+      agent.flick = 1
+      return
+    }
     agent.faceFrame = FACE.happy
     agent.blinkAt = 1.5
     agent.hop = 0.25
@@ -1700,6 +1754,7 @@ export class Astronauts {
       mesh.material.dispose()
     }
     this._disposeCrew()
+    this.pigeons.dispose()
     // The bone texture is the rig's, not this instance's — the rig outlives any one colony.
     this.faceTexture.dispose()
     this.scene.remove(this.group)
@@ -1722,6 +1777,9 @@ function setPart(scratch, root, mesh, index, x, y, z, rx, ry, rz) {
   scratch.premultiply(root)
   mesh.setMatrixAt(index, scratch)
 }
+
+/** The ground under an agent, for the rings: a pigeon in flight keeps its ring on the deck. */
+const ringY = (agent) => (agent.kind === 'pigeon' ? agent.groundY ?? agent.pos.y : agent.pos.y)
 
 function angleDamp(current, target, lambda, dt) {
   let delta = target - current
